@@ -1,7 +1,16 @@
-name: AEMET radar spike
+name: AEMET spikes
 
 on:
   workflow_dispatch:
+    inputs:
+      spike:
+        description: Spike manual a ejecutar
+        required: true
+        default: warnings
+        type: choice
+        options:
+          - warnings
+          - radar
 
 permissions:
   contents: read
@@ -17,16 +26,25 @@ jobs:
           python-version: '3.11'
 
       - name: Download and inspect current AEMET radar products
+        if: inputs.spike == 'radar'
         env:
           AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
         run: python scripts/aemet_radar_spike.py
+
+      - name: Download and inspect current AEMET CAP warnings
+        if: inputs.spike == 'warnings'
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+        run: python scripts/aemet_warnings_spike.py
 
       - name: Upload safe spike report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aemet-radar-spike-report
+          name: aemet-${{ inputs.spike }}-spike-report
           if-no-files-found: warn
           path: |
             .spike/aemet-radar/SUMMARY.md
             .spike/aemet-radar/report.json
+            .spike/aemet-warnings/SUMMARY.md
+            .spike/aemet-warnings/report.json
