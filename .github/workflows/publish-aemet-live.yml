@@ -1,11 +1,32 @@
-name: Publish AEMET LIVE
+name: AEMET radar spike
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  placeholder:
+  spike:
     runs-on: ubuntu-latest
     steps:
-      - name: Placeholder
-        run: echo "AEMET LIVE pipeline pendiente de implementar"
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download and inspect current AEMET radar products
+        env:
+          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
+        run: python scripts/aemet_radar_spike.py
+
+      - name: Upload safe spike report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aemet-radar-spike-report
+          if-no-files-found: warn
+          path: |
+            .spike/aemet-radar/SUMMARY.md
+            .spike/aemet-radar/report.json
