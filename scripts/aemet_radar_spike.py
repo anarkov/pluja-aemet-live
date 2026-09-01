@@ -283,6 +283,18 @@ def try_json(data: bytes) -> Any:
         return None
 
 
+def safe_headers(headers: dict[str, str]) -> dict[str, str]:
+    allowed = ("content-type", "content-length", "last-modified", "date")
+    return {key: value for key, value in headers.items() if key in allowed}
+
+
+def safe_metadata_preview(data: bytes) -> str:
+    text = data.decode("latin-1", errors="replace").replace("\x00", " ")
+    # Metadata and data links can be temporary HATEOAS URLs; artifacts must not retain them.
+    text = re.sub(r"https?://\S+", "<redacted-url>", text)
+    return " ".join(text.split())[:800]
+
+
 def product(name: str, endpoint: str, output: Path, api_key: str) -> dict[str, Any]:
     result: dict[str, Any] = {"name": name, "endpoint": endpoint, "queriedAt": utc_now()}
     try:
@@ -306,10 +318,11 @@ def product(name: str, endpoint: str, output: Path, api_key: str) -> dict[str, A
             intensity = "UNDETERMINED: no hay valores físicos ni escala documentada que permitan convertir colores de forma fiable."
         result.update({
             "ok": True,
-            "dataHeaders": data_headers,
-            "metadataHeaders": meta_headers,
+            "dataHeaders": safe_headers(data_headers),
+            "metadataHeaders": safe_headers(meta_headers),
             "image": public_image_summary(image_info),
             "metadataIsJson": metadata_json is not None,
+            "metadataPreview": safe_metadata_preview(meta),
             "localData": f"{name}{suffix}",
             "localMetadata": f"{name}.metadata",
             "intensityAssessment": intensity,
