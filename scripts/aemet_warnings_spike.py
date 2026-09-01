@@ -52,7 +52,9 @@ def level(parameters: dict[str, str], severity: str | None) -> str:
         return "ORANGE"
     if "yellow" in raw or "amarillo" in raw:
         return "YELLOW"
-    mapping = {"extreme": "RED", "severe": "ORANGE", "moderate": "YELLOW", "minor": "YELLOW"}
+    if "green" in raw or "verde" in raw:
+        return "GREEN"
+    mapping = {"extreme": "RED", "severe": "ORANGE", "moderate": "YELLOW", "minor": "GREEN"}
     return mapping.get((severity or "").lower(), "UNKNOWN")
 
 
@@ -67,7 +69,7 @@ def phenomena(event: str | None) -> list[str]:
         found.append("WIND")
     if any(token in value for token in ("temperatura", "calor")):
         found.append("HEAT")
-    if "nieve" in value:
+    if "nieve" in value or "nevad" in value:
         found.append("SNOW")
     if "costero" in value:
         found.append("COASTAL")
