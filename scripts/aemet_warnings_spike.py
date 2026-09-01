@@ -69,10 +69,18 @@ def phenomena(event: str | None) -> list[str]:
         found.append("WIND")
     if any(token in value for token in ("temperatura", "calor")):
         found.append("HEAT")
+    if "frío" in value or "frio" in value or "helad" in value:
+        found.append("COLD")
     if "nieve" in value or "nevad" in value:
         found.append("SNOW")
     if "costero" in value:
         found.append("COASTAL")
+    if "niebla" in value:
+        found.append("FOG")
+    if "polvo" in value:
+        found.append("DUST")
+    if "alud" in value:
+        found.append("AVALANCHE")
     return found or ["OTHER"]
 
 

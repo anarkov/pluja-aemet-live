@@ -1,22 +1,17 @@
-name: AEMET spikes
+name: AEMET warnings
 
 on:
   workflow_dispatch:
-    inputs:
-      spike:
-        description: Spike manual a ejecutar
-        required: true
-        default: warnings
-        type: choice
-        options:
-          - warnings
-          - radar
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: publish-aemet-warnings
+  cancel-in-progress: false
 
 jobs:
-  spike:
+  publish-warnings:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,26 +20,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Download and inspect current AEMET radar products
-        if: inputs.spike == 'radar'
+      - name: Install geographic dependencies
+        run: python -m pip install --disable-pip-version-check pyshp pyproj
+
+      - name: Build official CAP warnings and Meteoalerta zones
         env:
           AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
-        run: python scripts/aemet_radar_spike.py
+        run: python scripts/publish_aemet_warnings.py
 
-      - name: Download and inspect current AEMET CAP warnings
-        if: inputs.spike == 'warnings'
-        env:
-          AEMET_API_KEY: ${{ secrets.AEMET_API_KEY }}
-        run: python scripts/aemet_warnings_spike.py
-
-      - name: Upload safe spike report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aemet-${{ inputs.spike }}-spike-report
-          if-no-files-found: warn
-          path: |
-            .spike/aemet-radar/SUMMARY.md
-            .spike/aemet-radar/report.json
-            .spike/aemet-warnings/SUMMARY.md
-            .spike/aemet-warnings/report.json
+      - name: Commit changed public feed
+        run: |
+          git add warnings/warnings.json warnings/zones.geojson
+          if git diff --cached --quiet; then
+            echo "No official warning feed changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update AEMET warnings"
+          git push
