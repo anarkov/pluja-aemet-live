@@ -7,10 +7,12 @@ published warnings/warnings.json and never exposes AEMET's temporary URLs.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
 import sys
+import tarfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
@@ -77,7 +79,7 @@ def selected_info(alert: ET.Element) -> ET.Element | None:
     return next((info for info in infos if (child_text(info, "language") or "").lower().startswith("es")), infos[0] if infos else None)
 
 
-def normalize_alerts(cap: bytes) -> list[dict[str, Any]]:
+def normalize_cap_xml(cap: bytes) -> list[dict[str, Any]]:
     try:
         root = ET.fromstring(cap)
     except ET.ParseError as error:
@@ -125,6 +127,32 @@ def normalize_alerts(cap: bytes) -> list[dict[str, Any]]:
     return normalized
 
 
+def normalize_alerts(payload: bytes, content_type: str | None) -> tuple[str, list[dict[str, Any]]]:
+    """Normalize AEMET's CAP payload, which is currently a TAR of CAP 1.2 XML.
+
+    The OpenData metadata declares ``application/x-gtar``.  Keeping TAR support
+    here avoids treating a successful official response as malformed XML while
+    still accepting a direct CAP XML response if AEMET changes the transport.
+    """
+    is_tar = "tar" in (content_type or "").lower() or payload.startswith(b"ustar")
+    if not is_tar:
+        return "CAP XML", normalize_cap_xml(payload)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(payload), mode="r:*") as archive:
+            members = [member for member in archive.getmembers() if member.isfile() and member.name.lower().endswith(".xml")]
+            if not members:
+                raise AemetError("El TAR de avisos no contiene CAP XML.")
+            warnings: list[dict[str, Any]] = []
+            for member in members:
+                source = archive.extractfile(member)
+                if source is None:
+                    continue
+                warnings.extend(normalize_cap_xml(source.read()))
+            return "TAR con CAP XML v1.2", warnings
+    except (tarfile.TarError, OSError) as error:
+        raise AemetError(f"TAR de avisos inválido: {error}") from error
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--area", default="esp", help="AEMET CAP area, default: esp")
@@ -143,7 +171,7 @@ def main() -> int:
         (output / "warnings.cap.xml").write_bytes(cap)
         (output / "warnings.metadata").write_bytes(metadata)
         try:
-            warnings = normalize_alerts(cap)
+            payload_format, warnings = normalize_alerts(cap, cap_headers.get("content-type"))
         except AemetError as error:
             diagnostic = {
                 "version": 1,
@@ -165,7 +193,7 @@ def main() -> int:
             "source": "AEMET",
             "generatedAt": utc_now(),
             "areaRequest": args.area,
-            "format": "CAP XML",
+            "format": payload_format,
             "capHeaders": safe_headers(cap_headers),
             "metadataHeaders": safe_headers(metadata_headers),
             "metadataPreview": safe_metadata_preview(metadata),
@@ -183,7 +211,7 @@ def main() -> int:
         summary = [
             "# AEMET warnings spike", "", f"Generado: {preview['generatedAt']}",
             f"- Endpoint: `/avisos_cap/ultimoelaborado/area/{args.area}`",
-            f"- Formato: CAP XML · avisos normalizados: {len(warnings)}",
+            f"- Formato: {payload_format} · avisos normalizados: {len(warnings)}",
             f"- Fenómenos: {by_phenomenon or 'ninguno'}",
             f"- Niveles: {by_level or 'ninguno'}",
             f"- Avisos con polígono CAP: {with_polygons}/{len(warnings)}",
