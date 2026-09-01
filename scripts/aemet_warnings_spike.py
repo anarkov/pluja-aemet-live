@@ -140,7 +140,26 @@ def main() -> int:
         hateoas = read_hateoas(f"/avisos_cap/ultimoelaborado/area/{args.area}", api_key)
         cap, cap_headers, _ = fetch(hateoas["datos"])
         metadata, metadata_headers, _ = fetch(hateoas["metadatos"])
-        warnings = normalize_alerts(cap)
+        (output / "warnings.cap.xml").write_bytes(cap)
+        (output / "warnings.metadata").write_bytes(metadata)
+        try:
+            warnings = normalize_alerts(cap)
+        except AemetError as error:
+            diagnostic = {
+                "version": 1,
+                "source": "AEMET",
+                "generatedAt": utc_now(),
+                "areaRequest": args.area,
+                "format": "UNPARSEABLE",
+                "capHeaders": safe_headers(cap_headers),
+                "metadataHeaders": safe_headers(metadata_headers),
+                "metadataPreview": safe_metadata_preview(metadata),
+                "dataPreview": safe_metadata_preview(cap),
+                "error": str(error),
+            }
+            (output / "report.json").write_text(json.dumps(diagnostic, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            (output / "SUMMARY.md").write_text(f"# AEMET warnings spike\n\nERROR: {error}\n\nMIME: {diagnostic['capHeaders'].get('content-type', '—')}\n", encoding="utf-8")
+            raise
         preview = {
             "version": 1,
             "source": "AEMET",
@@ -153,8 +172,6 @@ def main() -> int:
             "warningCount": len(warnings),
             "warnings": warnings,
         }
-        (output / "warnings.cap.xml").write_bytes(cap)
-        (output / "warnings.metadata").write_bytes(metadata)
         (output / "report.json").write_text(json.dumps(preview, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         by_phenomenon: dict[str, int] = {}
         by_level: dict[str, int] = {}
