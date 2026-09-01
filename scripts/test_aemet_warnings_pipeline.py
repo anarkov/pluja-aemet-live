@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from publish_aemet_warnings import current_warnings, point_in_ring, zone_for_point
+from publish_aemet_warnings import current_warnings, point_in_ring, point_in_polygon, zone_for_point
 
 
 class AemetWarningsPipelineTest(unittest.TestCase):
@@ -27,6 +27,16 @@ class AemetWarningsPipelineTest(unittest.TestCase):
             {"endsAt": "2026-09-03T00:00:00Z"},
         ]
         self.assertEqual(warnings[1:], current_warnings(warnings, now))
+
+    def test_holes_and_multipart_zones_are_respected(self):
+        polygon = [
+            [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]],
+            [[1, 1], [3, 1], [3, 3], [1, 3], [1, 1]],
+        ]
+        self.assertTrue(point_in_polygon(0.5, 0.5, polygon))
+        self.assertFalse(point_in_polygon(2, 2, polygon))
+        features = [{"properties": {"zoneCode": "MULTI"}, "geometry": {"type": "MultiPolygon", "coordinates": [polygon, [[[10, 10], [11, 10], [11, 11], [10, 11], [10, 10]]]]}}]
+        self.assertEqual("MULTI", zone_for_point(features, 10.5, 10.5))
 
 
 if __name__ == "__main__":

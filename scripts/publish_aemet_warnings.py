@@ -58,10 +58,11 @@ def compact_warning(item: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def rings(shape: shapefile.Shape, transform: Transformer) -> list[list[list[float]]]:
-    points = [list(transform.transform(x, y)) for x, y in shape.points]
-    starts = list(shape.parts) + [len(points)]
-    return [[[round(lon, 6), round(lat, 6)] for lon, lat in points[starts[index]:starts[index + 1]]] for index in range(len(starts) - 1)]
+def reproject_coordinates(coordinates: Any, transform: Transformer) -> Any:
+    if coordinates and isinstance(coordinates[0], (int, float)):
+        lon, lat = transform.transform(coordinates[0], coordinates[1])
+        return [round(lon, 6), round(lat, 6)]
+    return [reproject_coordinates(part, transform) for part in coordinates]
 
 
 def zone_features(archive: bytes) -> list[dict[str, Any]]:
@@ -82,11 +83,14 @@ def zone_features(archive: bytes) -> list[dict[str, Any]]:
                 zone_code = str(properties["COD_Z"]).strip()
                 if not zone_code:
                     continue
-                polygon_rings = rings(record.shape, transformer)
-                geometry: dict[str, Any]
-                # Official layers use multipart polygons; GeoJSON Polygon supports
-                # their rings and preserves the AEMET geometry without inference.
-                geometry = {"type": "Polygon", "coordinates": polygon_rings}
+                source_geometry = record.shape.__geo_interface__
+                if source_geometry["type"] not in {"Polygon", "MultiPolygon"}:
+                    raise AemetError(f"Geometría oficial no poligonal en {path.name}")
+                # pyshp retains outer rings, holes and multipart polygons here.
+                geometry = {
+                    "type": source_geometry["type"],
+                    "coordinates": reproject_coordinates(source_geometry["coordinates"], transformer),
+                }
                 features.append({
                     "type": "Feature",
                     "properties": {"zoneCode": zone_code, "name": str(properties["NOM_Z"]).strip()},
@@ -113,10 +117,16 @@ def point_in_ring(lon: float, lat: float, ring: list[list[float]]) -> bool:
     return inside
 
 
+def point_in_polygon(lon: float, lat: float, polygon: list[list[list[float]]]) -> bool:
+    return bool(polygon) and point_in_ring(lon, lat, polygon[0]) and not any(point_in_ring(lon, lat, hole) for hole in polygon[1:])
+
+
 def zone_for_point(features: list[dict[str, Any]], lon: float, lat: float) -> str | None:
     for feature in features:
         geometry = feature["geometry"]
-        if geometry["type"] == "Polygon" and point_in_ring(lon, lat, geometry["coordinates"][0]):
+        if geometry["type"] == "Polygon" and point_in_polygon(lon, lat, geometry["coordinates"]):
+            return feature["properties"]["zoneCode"]
+        if geometry["type"] == "MultiPolygon" and any(point_in_polygon(lon, lat, polygon) for polygon in geometry["coordinates"]):
             return feature["properties"]["zoneCode"]
     return None
 
